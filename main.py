@@ -1,5 +1,5 @@
 import json
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, send_file
 
 app = Flask(__name__)
 
@@ -25,6 +25,11 @@ def load_registrations():
 def save_registrations(registrations):
     with open('registrations.json', 'w', encoding='utf-8') as file:
         json.dump(registrations, file, ensure_ascii=False)
+
+# Route to download the registrations.json file
+@app.route('/download/registrations', methods=['GET'])
+def download_registrations():
+    return send_file('registrations.json', as_attachment=True)
 
 # Route to serve the HTML form
 @app.route('/')
