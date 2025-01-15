@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Φόρμα Εγγραφής Σεμιναρίων</title>
+ <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 20px auto;
+        }
+        h1 {
+            text-align: center;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+        }
+        input, select, button {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            box-sizing: border-box;
+        }
+        .seminar-list {
+            margin-top: 20px;
+            padding: 15px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            background-color: #f9f9f9;
+        }
+        .seminar-item {
+            display: grid;
+            grid-template-columns: auto 1fr;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .seminar-item input[type="radio"] {
+            margin-right: 10px;
+        }
+        button {
+            padding: 10px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        .success {
+            color: green;
+            font-weight: bold;
+            text-align: center;
+            margin-top: 20px;
+        }
+        .error {
+            color: red;
+            font-weight: bold;
+            text-align: center;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+
+<h1>Φόρμα Εγγραφής Σεμιναρίων</h1>
+
+<form id="registrationForm">
+    <div class="form-group">
+        <label for="name">Ονοματεπώνυμο:</label>
+        <input type="text" id="name" name="name" required>
+    </div>
+    <div class="form-group">
+        <label for="email">Διεύθυνση Email:</label>
+        <input type="email" id="email" name="email" required>
+    </div>
+    <div class="form-group">
+        <label for="location">Επιλέξτε Επαρχία:</label>
+        <select id="location" name="location" required>
+            <option value="">-- Επιλέξτε --</option>
+            <option value="Λευκωσία">Λευκωσία</option>
+            <option value="Λεμεσός/Πάφος">Λεμεσός/Πάφος</option>
+            <option value="Λάρνακα/Αμμόχωστος">Λάρνακα/Αμμόχωστος</option>
+        </select>
+    </div>
+
+    <div class="seminar-list" id="seminarList">
+        <h2>Σεμινάρια:</h2>
+        <div id="seminars"></div>
+        <button type="submit" id="registerBtn" disabled>Εγγραφή</button>
+    </div>
+</form>
+
+<div id="message"></div>
+
+<script>
+    // Load seminar options from the server
+    fetch('/seminars')
+        .then(response => response.json())
+        .then(data => {
+            const locationSelect = document.getElementById('location');
+            const seminarList = document.getElementById('seminarList');
+            const seminarsDiv = document.getElementById('seminars');
+            const registerBtn = document.getElementById('registerBtn');
+
+            locationSelect.addEventListener('change', function () {
+                const location = this.value;
+                const seminars = data[location] || [];
+
+                seminarsDiv.innerHTML = '';
+                registerBtn.disabled = true;
+
+                if (seminars.length > 0) {
+                    seminarList.style.display = 'block';
+
+                    seminars.forEach(seminar => {
+                        const seminarItem = document.createElement('div');
+                        seminarItem.classList.add('seminar-item');
+
+                        const radio = document.createElement('input');
+                        radio.type = 'radio';
+                        radio.name = 'seminar';
+                        radio.value = seminar.id;
+                        radio.id = `seminar_${seminar.id}`;
+
+                        const label = document.createElement('label');
+                        label.htmlFor = `seminar_${seminar.id}`;
+                        label.textContent = `${seminar.name} (${seminar.slots} θέσεις)`;
+
+                        seminarItem.appendChild(radio);
+                        seminarItem.appendChild(label);
+                        seminarsDiv.appendChild(seminarItem);
+
+                        radio.addEventListener('change', function () {
+                            registerBtn.disabled = false;
+                        });
+                    });
+                } else {
+                    seminarList.style.display = 'none';
+                }
+            });
+        });
+
+    // Handle form submission
+    const form = document.getElementById('registrationForm');
+    form.addEventListener('submit', async function (event) {
+        event.preventDefault();
+
+        const formData = {
+            name: document.getElementById('name').value,
+            email: document.getElementById('email').value,
+            location: document.getElementById('location').value,
+            seminarId: document.querySelector('input[name="seminar"]:checked').value
+        };
+
+        const response = await fetch('/register', {
+            method: 'POST',
+            body: JSON.stringify(formData),
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        const messageDiv = document.getElementById('message');
+        if (response.ok) {
+            messageDiv.innerHTML = `<p class=\"success\">Ευχαριστούμε για την εγγραφή σας!</p>`;
+            form.reset();
+            document.getElementById('seminarList').style.display = 'none';
+        } else {
+            messageDiv.innerHTML = `<p class=\"error\">Κάτι πήγε στραβά. Προσπαθήστε ξανά.</p>`;
+        }
+    });
+</script>
+
+</body>
+</html>
