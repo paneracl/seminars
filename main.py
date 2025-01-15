@@ -31,6 +31,10 @@ def save_registrations(registrations):
 def download_registrations():
     return send_file('registrations.json', as_attachment=True)
 
+@app.route('/download/seminars', methods=['GET'])
+def download_seminars():
+    return send_file('seminars.json', as_attachment=True)
+
 # Route to serve the HTML form
 @app.route('/')
 def home():
