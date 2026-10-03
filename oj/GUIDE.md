@@ -89,6 +89,20 @@ RE instead of MLE means cgroup memory accounting isn't reaching us — fix
 before students see verdicts. **Then submit a known-good solution through
 CMS itself** and confirm it still grades normally, on a quiet day.
 
+Then the full sandbox suite: 34 checks against the real isolate — every
+verdict (AC, PA, WA, CE, RE, TLE, MLE, OLE) in C++ and Python, and a set of
+hostile programs (reading host files, writing outside the box, network,
+fork bomb, killing the judge, symlink tricks) that must all stay contained.
+About a minute; it must end in `OK`:
+
+```bash
+cd /srv/oj/app
+sudo -u oj bash -c 'set -a; . /etc/oj/oj.env; set +a; \
+  /srv/oj/venv/bin/python -m unittest tests.test_isolate -v'
+```
+
+Re-run it after any isolate, kernel or compiler upgrade.
+
 ### 7. Services
 
 ```bash

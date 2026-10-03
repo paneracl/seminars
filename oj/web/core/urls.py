@@ -27,6 +27,8 @@ urlpatterns = [
     path("contests/<slug:slug>/<str:label>/statement/<slug:language>.pdf",
          contest_views.contest_statement_pdf, name="contest_statement_pdf"),
 
+    path("runs/<int:pk>/", views.run_status, name="run_status"),
+
     path("submissions/", views.submission_list, name="submission_list"),
     path("submissions/<int:pk>/", views.submission_detail, name="submission_detail"),
     path("submissions/<int:pk>/status/", views.submission_status, name="submission_status"),

@@ -15,7 +15,8 @@ import time
 
 from django.core.management.base import BaseCommand
 
-from core.judging import claim_one, judge_submission, requeue_stale
+from core.judging import (claim_one, claim_run_job, execute_run_job,
+                          judge_submission, requeue_stale)
 
 
 class Command(BaseCommand):
@@ -52,6 +53,15 @@ class Command(BaseCommand):
 
         idle_since = time.monotonic()
         while not stopping["now"]:
+            # Run Code requests first: a student is watching a spinner, and
+            # each one is a single compile + run, far shorter than a full
+            # submission.
+            job = claim_run_job()
+            if job is not None:
+                execute_run_job(job, box_id=box_id)
+                idle_since = time.monotonic()
+                continue
+
             submission = claim_one(box_id)
             if submission is None:
                 if options["once"]:

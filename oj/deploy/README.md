@@ -86,6 +86,20 @@ sudo -u oj bash -c 'set -a; . /etc/oj/oj.env; set +a; \
 If that returns RE rather than MLE, cgroup memory accounting is not reaching
 us. Fix it now, before students are seeing verdicts.
 
+Then the full sandbox suite: 34 checks against the real isolate — every
+verdict (AC, PA, WA, CE, RE, TLE, MLE, OLE) in C++ and Python, and a set of
+hostile programs (reading host files, writing outside the box, network,
+fork bomb, killing the judge, symlink tricks) that must all stay contained.
+About a minute; it must end in `OK`:
+
+```bash
+cd /srv/oj/app
+sudo -u oj bash -c 'set -a; . /etc/oj/oj.env; set +a; \
+  /srv/oj/venv/bin/python -m unittest tests.test_isolate -v'
+```
+
+Re-run it after any isolate, kernel or compiler upgrade.
+
 **Then submit a known-good solution through CMS** and confirm it still grades
 normally. Do this on a quiet day, not the week of a round.
 

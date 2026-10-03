@@ -185,9 +185,9 @@ directly:
 export OJ_ISOLATE=/usr/local/bin/isolate     # whatever survey.sh found
 ```
 
-`IsolateSandbox` detects the major version at startup and adjusts its flags
-(1.x needs `--cg`; 2.x always uses cgroups and rejects the flag). Nothing gets
-installed, nothing gets overwritten.
+`IsolateSandbox` works with isolate 1.x (cgroup v1 hosts) and 2.x (cgroup v2)
+and always passes `--cg`, which both need for cgroup memory limits. Nothing
+gets installed, nothing gets overwritten.
 
 ## C.3 The easy one: sandbox ID collisions
 

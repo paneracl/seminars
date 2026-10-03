@@ -101,8 +101,12 @@ CodeMirror theme) re-themes from one place.
 A HackerRank-style "Run code" button under the editor compiles and runs the
 student's program on custom input they type, ungraded, and shows stdout /
 stderr / status. It reuses the exact judging sandbox and language limits via
-`judge.run_once`, so behaviour matches grading. Because it runs untrusted code
-on demand outside the queue, it has its own limits, separate from submissions
+`judge.run_once`, so behaviour matches grading. The program never runs in the
+web process: the request queues a `RunJob`, a judge worker picks it up ahead
+of waiting submissions, and the browser polls `/runs/<id>/` for the result.
+So stopping `oj-worker.target` stops Run Code too, and the web tier keeps its
+locked-down systemd unit. Because it runs untrusted code on demand, it has
+its own limits, separate from submissions
 and staff-exempt: `RUN_PER_MINUTE` (default 6) and `RUN_HOURLY_CAP` (default
 80), plus `MAX_RUN_INPUT_BYTES` (default 64 KB) on the custom input. Inside a
 contest the run endpoint is gated by the same seal as viewing the problem, so

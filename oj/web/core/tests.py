@@ -460,3 +460,44 @@ class RunCodeSampleTests(TestCase):
         html = self.client.get("/problems/samp5/").content.decode()
         self.assertNotIn("42", html.split("run-stdin")[1][:200]
                          if "run-stdin" in html else "")
+
+
+class RunCodeQueueTests(RunCodeTests):
+    """With a real worker setup, Run Code is queued and answered by runjudge."""
+
+    def test_queued_then_answered_by_worker(self):
+        from django.core.management import call_command
+        from django.test import override_settings
+        from core.models import RunJob
+        with override_settings(JUDGE_INLINE=False):
+            self.client.login(username="runner", password="pw-12345678")
+            src = '#include <iostream>\nint main(){int a,b;std::cin>>a>>b;std::cout<<a*b;}'
+            d = self._post(self.client, source=src, stdin="6 7\n").json()
+            self.assertEqual(d["status"], "queued")
+            self.assertEqual(self.client.get(d["poll_url"]).json()["status"], "queued")
+
+            call_command("runjudge", "--once", stdout=open("/dev/null", "w"))
+
+            done = self.client.get(d["poll_url"]).json()
+            self.assertEqual((done["status"], done["stdout"].strip()), ("ok", "42"))
+            self.assertEqual(RunJob.objects.get().status, RunJob.Status.DONE)
+
+    def test_other_users_cannot_read_a_run(self):
+        from django.test import override_settings
+        with override_settings(JUDGE_INLINE=False):
+            self.client.login(username="runner", password="pw-12345678")
+            url = self._post(self.client, source="int main(){}").json()["poll_url"]
+            User.objects.create_user("snoop", password="pw-12345678")
+            self.client.login(username="snoop", password="pw-12345678")
+            self.assertEqual(self.client.get(url).status_code, 404)
+
+
+class RegistrationTests(TestCase):
+
+    def test_self_registration_logs_the_student_in(self):
+        r = self.client.post("/accounts/register/", {
+            "username": "newstudent",
+            "password1": "Very-long-pw-123", "password2": "Very-long-pw-123"})
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(int(self.client.session["_auth_user_id"]),
+                         User.objects.get(username="newstudent").pk)

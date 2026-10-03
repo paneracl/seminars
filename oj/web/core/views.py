@@ -10,16 +10,17 @@ from django.core.paginator import Paginator
 from django.db.models import Max
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 
 from . import statements as statements_module
 import json
 
 from .forms import LANGUAGE_TEMPLATES, RegisterForm, SubmitForm
-from .judging import enqueue
-from .models import Problem, RunEvent, Submission
+from .judging import enqueue, enqueue_run
+from .models import Problem, RunEvent, RunJob, Submission
 
-from judge import Problem as JudgeProblem, languages, run_once
+from judge import Problem as JudgeProblem, languages
 
 
 def problem_list(request):
@@ -265,9 +266,25 @@ def _run_code_for(request, problem):
             user=request.user,
             created_at__lt=timezone.now() - timedelta(hours=2)).delete()
 
-    judge_problem = JudgeProblem(problem.package_dir)
-    result = run_once(judge_problem, source, language, stdin_text)
-    return JsonResponse(result.to_dict())
+    # The run itself happens in a judge worker, never in the web process.
+    job = RunJob.objects.create(user=request.user, problem=problem,
+                                language=language, source=source, stdin=stdin_text)
+    enqueue_run(job)
+    return _run_job_response(request, job)
+
+
+def _run_job_response(request, job):
+    if job.status == RunJob.Status.DONE and job.result is not None:
+        return JsonResponse(job.result)
+    return JsonResponse({"status": "queued",
+                         "poll_url": reverse("run_status", args=[job.pk])})
+
+
+@login_required
+def run_status(request, pk):
+    """Poll endpoint for a queued Run Code request. Owner only."""
+    job = get_object_or_404(RunJob, pk=pk, user=request.user)
+    return _run_job_response(request, job)
 
 
 @login_required
@@ -285,7 +302,10 @@ def register(request):
     form = RegisterForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
         user = form.save()
-        login(request, user)
+        # Two backends are configured (axes + ModelBackend), so Django needs
+        # to be told which one vouches for a user who never typed a password
+        # into the login form; without this, every sign-up is a 500.
+        login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         messages.success(request, "Welcome. Your account is ready.")
         return redirect("problem_list")
     return render(request, "registration/register.html", {"form": form})

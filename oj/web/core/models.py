@@ -424,3 +424,29 @@ class RunEvent(models.Model):
 
     class Meta:
         indexes = [models.Index(fields=["user", "created_at"])]
+
+
+class RunJob(models.Model):
+    """A Run Code request waiting for, or answered by, a judge worker.
+
+    Run Code executes untrusted code, so it goes through the same workers as
+    submissions instead of running inside the web process: the web tier stays
+    unprivileged, each worker owns its own sandbox box (no two runs ever share
+    one), and stopping oj-worker.target stops Run Code too. Rows are
+    short-lived; the browser polls for the result and old rows are pruned.
+    """
+    class Status(models.TextChoices):
+        PENDING = "pending", "Queued"
+        RUNNING = "running", "Running"
+        DONE = "done", "Done"
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="run_jobs")
+    problem = models.ForeignKey(Problem, on_delete=models.CASCADE, related_name="run_jobs")
+    language = models.CharField(max_length=16)
+    source = models.TextField()
+    stdin = models.TextField(blank=True)
+    status = models.CharField(max_length=16, choices=Status.choices,
+                              default=Status.PENDING, db_index=True)
+    result = models.JSONField(null=True, blank=True)
+    created_at = models.DateTimeField(default=timezone.now, db_index=True)
+    claimed_at = models.DateTimeField(null=True, blank=True)

@@ -11,8 +11,10 @@ OJ_SANDBOX=rlimit python3 -m judge.cli problems/sumsub solution.cpp
 OJ_SANDBOX=rlimit python3 -m judge.cli problems/sumsub brute.py --expect PA
 ```
 
-`OJ_SANDBOX=rlimit` forces the development backend. Leave it unset on the
-server and `isolate` is picked automatically.
+`OJ_SANDBOX=rlimit` selects the development backend. Leave it unset on the
+server: the default is `isolate`, and if isolate is missing judging fails
+with Judge Errors rather than quietly falling back to the unsafe backend.
+With `OJ_DEBUG=0` the site refuses to start on `rlimit` at all.
 
 ## The two sandboxes
 
@@ -80,9 +82,12 @@ export OJ_BOX_OFFSET=100
 Only on a host with no existing isolate:
 
 ```bash
-apt install -y libcap-dev build-essential git g++ python3
+apt install -y libcap-dev libsystemd-dev pkg-config build-essential git g++ python3
 git clone https://github.com/ioi/isolate && cd isolate && make install
 isolate-check-environment          # must pass before you trust any timing
+# isolate 2.x on a cgroup-v2 host (Ubuntu 22.04+) also needs libsystemd-dev
+# to build, and its cgroup keeper running (make install ships the unit):
+sudo systemctl daemon-reload && sudo systemctl enable --now isolate.service
 ```
 
 For reproducible time limits:
@@ -96,6 +101,16 @@ Sizing for ~150 students: 4 dedicated vCPU / 8–16 GB, 3 cores judging. A
 20-test problem at 1 s is ~20 s of wall time per submission per core, so three
 workers clear roughly 9 submissions/minute — comfortable for a class, and the
 queue absorbs the submit-at-the-buzzer spike.
+
+## Proving the sandbox
+
+`tests/test_isolate.py` runs every verdict and a set of hostile programs
+through the real isolate backend (skipped where isolate is absent):
+
+```bash
+OJ_ISOLATE=/usr/local/bin/isolate python3 -m unittest tests.test_isolate -v
+cd web && python3 manage.py test core        # site, queue and scoreboard
+```
 
 ## Habit worth forming now
 

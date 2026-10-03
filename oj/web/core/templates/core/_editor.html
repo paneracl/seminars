@@ -108,6 +108,28 @@ document.addEventListener("DOMContentLoaded", function () {
       out.hidden = false;
     }
 
+    // The program runs on a judge worker, not in the web request, so a run
+    // comes back "queued" and we poll until a worker has answered it.
+    var RUN_WAIT_MS = 60000;
+    function waitFor(url) {
+      var deadline = Date.now() + RUN_WAIT_MS;
+      return new Promise(function (resolve, reject) {
+        (function tick() {
+          fetch(url, { headers: { "Accept": "application/json" } })
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+              if (d.status !== "queued") return resolve(d);
+              if (Date.now() > deadline) {
+                return resolve({ status: "error",
+                  message: "The judge is busy or paused right now. Try again in a minute." });
+              }
+              setTimeout(tick, 700);
+            })
+            .catch(reject);
+        })();
+      });
+    }
+
     runBtn.addEventListener("click", function () {
       textarea.value = window.OJEditor ? window.OJEditor.getValue() : textarea.value;
       var langSel = document.getElementById("id_language");
@@ -130,6 +152,7 @@ document.addEventListener("DOMContentLoaded", function () {
         body: params.toString()
       })
       .then(function (r) { return r.json(); })
+      .then(function (d) { return d.status === "queued" ? waitFor(d.poll_url) : d; })
       .then(render)
       .catch(function () {
         out.innerHTML = '<div class="run-status warn">Could not reach the server. Try again.</div>';

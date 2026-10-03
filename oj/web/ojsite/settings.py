@@ -153,6 +153,18 @@ PROBLEM_ROOT = Path(os.environ.get("OJ_PROBLEM_ROOT", REPO_ROOT / "problems"))
 # thread for the full runtime of the tests. Production runs `runjudge`.
 JUDGE_INLINE = _flag("OJ_JUDGE_INLINE", DEBUG)
 
+# Which sandbox runs student code. "isolate" is the only safe choice for a
+# real server. "rlimit" isolates nothing and exists for writing problems on a
+# laptop, so with DEBUG off it is refused unless explicitly acknowledged
+# (scripts/local-prod.sh does this for the local rehearsal only).
+OJ_SANDBOX = os.environ.get("OJ_SANDBOX", "isolate")
+if (not DEBUG and OJ_SANDBOX == "rlimit"
+        and not _flag("OJ_ALLOW_UNSAFE_SANDBOX", False)):
+    raise RuntimeError(
+        "OJ_SANDBOX=rlimit runs student code with no isolation and is refused "
+        "when OJ_DEBUG=0. Use isolate on a server; for a local rehearsal set "
+        "OJ_ALLOW_UNSAFE_SANDBOX=1.")
+
 # Submission source size cap, bytes.
 MAX_SOURCE_BYTES = int(os.environ.get("OJ_MAX_SOURCE_BYTES", 128 * 1024))
 
@@ -165,8 +177,9 @@ SUBMIT_COOLDOWN_SECONDS = int(os.environ.get("OJ_SUBMIT_COOLDOWN", "10"))
 SUBMIT_HOURLY_CAP = int(os.environ.get("OJ_SUBMIT_HOURLY_CAP", "60"))
 
 # Run Code (compile + run on custom input, ungraded). It runs untrusted code
-# on demand outside the queue, so it gets its own tighter limits: a short
-# per-minute burst limit and an hourly cap, both separate from submissions.
+# on demand -- through the judge workers, ahead of queued submissions -- so it
+# gets its own tighter limits: a short per-minute burst limit and an hourly
+# cap, both separate from submissions.
 # Staff are exempt. Tighten RUN_PER_MINUTE first if the box ever feels the
 # load during a contest.
 RUN_PER_MINUTE = int(os.environ.get("OJ_RUN_PER_MINUTE", "6"))

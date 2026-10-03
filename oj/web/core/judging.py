@@ -17,9 +17,9 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
-from judge.grader import Feedback, Problem as JudgeProblem, judge as run_judge
+from judge.grader import Feedback, Problem as JudgeProblem, judge as run_judge, run_once
 
-from .models import Submission, SubmissionSubtask, SubmissionTest
+from .models import RunJob, Submission, SubmissionSubtask, SubmissionTest
 
 logger = logging.getLogger(__name__)
 
@@ -47,9 +47,60 @@ def claim_one(worker_box: int = 0) -> Submission | None:
 def requeue_stale() -> int:
     """Return abandoned in-progress submissions to the queue."""
     cutoff = timezone.now() - STALE_CLAIM
+    prune_run_jobs()
     return (Submission.objects
             .filter(status=Submission.Status.JUDGING, claimed_at__lt=cutoff)
             .update(status=Submission.Status.PENDING, claimed_at=None))
+
+
+# --- Run Code ---------------------------------------------------------------
+
+# A browser gives up waiting long before this; anything older is garbage.
+RUN_JOB_TTL = timedelta(minutes=10)
+
+
+def claim_run_job() -> RunJob | None:
+    """Atomically take the oldest queued Run Code request, or None."""
+    with transaction.atomic():
+        job = (RunJob.objects
+               .select_for_update(skip_locked=True)
+               .filter(status=RunJob.Status.PENDING)
+               .order_by("created_at")
+               .first())
+        if job is None:
+            return None
+        job.status = RunJob.Status.RUNNING
+        job.claimed_at = timezone.now()
+        job.save(update_fields=["status", "claimed_at"])
+        return job
+
+
+def execute_run_job(job: RunJob, *, box_id: int = 0) -> RunJob:
+    """Compile and run one Run Code request and store the result. Never raises."""
+    try:
+        if not job.problem.package_exists:
+            raise FileNotFoundError("This problem has no test data installed.")
+        result = run_once(JudgeProblem(job.problem.package_dir), job.source,
+                          job.language, job.stdin, box_id=box_id).to_dict()
+    except Exception as exc:                       # noqa: BLE001
+        logger.exception("run job %s failed", job.pk)
+        result = {"status": "error", "message": f"{type(exc).__name__}: {exc}"}
+    job.result = result
+    job.status = RunJob.Status.DONE
+    job.save(update_fields=["result", "status"])
+    return job
+
+
+def enqueue_run(job: RunJob) -> None:
+    """Hand a Run Code request to the judge (or run it now, with JUDGE_INLINE)."""
+    if settings.JUDGE_INLINE:
+        execute_run_job(job)
+
+
+def prune_run_jobs() -> int:
+    deleted, _ = RunJob.objects.filter(
+        created_at__lt=timezone.now() - RUN_JOB_TTL).delete()
+    return deleted
 
 
 def judge_submission(submission: Submission, *, box_id: int = 0) -> Submission:

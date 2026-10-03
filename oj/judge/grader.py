@@ -79,6 +79,7 @@ class JudgeReport:
 _STATUS_TO_VERDICT = {
     RunStatus.TIMED_OUT: Verdict.TIME_LIMIT,
     RunStatus.MEMORY_EXCEEDED: Verdict.MEMORY_LIMIT,
+    RunStatus.OUTPUT_EXCEEDED: Verdict.OUTPUT_LIMIT,
     RunStatus.KILLED_BY_SIGNAL: Verdict.RUNTIME_ERROR,
     RunStatus.NONZERO_EXIT: Verdict.RUNTIME_ERROR,
     RunStatus.SANDBOX_ERROR: Verdict.JUDGE_ERROR,
@@ -331,6 +332,10 @@ def _runtime_hint(run) -> str:
         return ""
     if run.status is RunStatus.MEMORY_EXCEEDED:
         return ""
+    if run.status is RunStatus.OUTPUT_EXCEEDED:
+        return "Output limit exceeded"
+    if run.status is RunStatus.SANDBOX_ERROR:
+        return "Judge error; this is not your fault"
     if run.signal == 11:
         return "Segmentation fault (signal 11)"
     if run.signal == 6:
@@ -407,6 +412,7 @@ _RUN_OUTPUT_CHARS = 32 * 1024
 _RUN_STATUS = {
     RunStatus.TIMED_OUT: "timeout",
     RunStatus.MEMORY_EXCEEDED: "memory",
+    RunStatus.OUTPUT_EXCEEDED: "output_limit",
     RunStatus.KILLED_BY_SIGNAL: "runtime_error",
     RunStatus.NONZERO_EXIT: "runtime_error",
     RunStatus.SANDBOX_ERROR: "error",
@@ -465,6 +471,8 @@ def run_once(problem: Problem, source: str, language_key: str, stdin_text: str, 
             result.message = f"Exceeded the time limit ({limits.cpu_time:g}s)."
         elif result.status == "memory":
             result.message = f"Exceeded the memory limit ({limits.memory_mb} MB)."
+        elif result.status == "output_limit":
+            result.message = f"Wrote more than the output limit ({limits.max_output_mb} MB)."
         return result
 
     except Exception as exc:                       # noqa: BLE001 - reported, not raised

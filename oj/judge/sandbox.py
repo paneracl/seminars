@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import os
 import shutil
+import signal as _signal
+import stat
 import subprocess
 import tempfile
 import time
@@ -30,6 +32,7 @@ class RunStatus(str, Enum):
     NONZERO_EXIT = "NONZERO"     # ran, exited != 0
     TIMED_OUT = "TIMEOUT"        # CPU or wall clock exceeded
     MEMORY_EXCEEDED = "MEMORY"   # cgroup OOM / address space exceeded
+    OUTPUT_EXCEEDED = "OUTPUT"   # wrote more than max_output_mb
     KILLED_BY_SIGNAL = "SIGNAL"  # segfault, abort, ...
     SANDBOX_ERROR = "SANDBOX"    # our fault, not the submission's
 
@@ -70,18 +73,59 @@ class Sandbox:
 
     box_dir: Path = field(init=False)
 
+    # The box is writable by the submission, so between runs it may hold
+    # whatever the program left there. isolate already deletes symlinks and
+    # other special files after every run (unless --special-files), which is
+    # what stops a program from swapping output.txt for a link to, say,
+    # /etc/oj/oj.env. We do not rely on that alone: every host-side write
+    # unlinks first and creates with O_EXCL|O_NOFOLLOW, and every host-side
+    # read goes through _capture(), which only ever reads a plain file. A
+    # missing or odd output file then reads as empty output -- Wrong Answer --
+    # instead of crashing the checker into a Judge Error.
+
     def put(self, src: Path | str, name: str | None = None) -> Path:
         src = Path(src)
-        dst = self.box_dir / (name or src.name)
-        shutil.copy(src, dst)
-        return dst
+        return self.write(name or src.name, src.read_bytes())
 
     def write(self, name: str, content: str | bytes) -> Path:
         dst = self.box_dir / name
-        mode = "wb" if isinstance(content, bytes) else "w"
-        with open(dst, mode) as fh:
-            fh.write(content)
+        data = content if isinstance(content, bytes) else content.encode("utf-8")
+        try:
+            os.unlink(dst)
+        except FileNotFoundError:
+            pass
+        fd = os.open(dst, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
         return dst
+
+    def _capture(self, name: str, limit_bytes: int) -> tuple[Path, int]:
+        """Copy a box file the program wrote into a host-private directory.
+
+        Returns (private path, size of the original). Anything that is not a
+        regular file -- symlink, FIFO, device, directory -- is treated as empty.
+        """
+        if not hasattr(self, "_private"):
+            self._private = Path(tempfile.mkdtemp(prefix="oj-capture-"))
+        dst = self._private / name
+        size = 0
+        with open(dst, "wb") as out:
+            try:
+                fd = os.open(self.box_dir / name,
+                             os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            except OSError:
+                return dst, 0
+            with os.fdopen(fd, "rb") as fh:
+                info = os.fstat(fh.fileno())
+                if stat.S_ISREG(info.st_mode):
+                    size = info.st_size
+                    out.write(fh.read(limit_bytes))
+        return dst, size
+
+    def _close_private(self) -> None:
+        private = getattr(self, "_private", None)
+        if private is not None:
+            shutil.rmtree(private, ignore_errors=True)
 
     def get(self, name: str) -> Path:
         return self.box_dir / name
@@ -120,16 +164,23 @@ class IsolateSandbox(Sandbox):
         self.box_id = box_id
         self.binary = binary or os.environ.get("OJ_ISOLATE", "isolate")
         self.major = self._detect_version(self.binary)
-        # isolate 1.x needs an explicit --cg; 2.x always uses cgroups and
-        # rejects the flag. Detecting lets us share whatever binary CMS
-        # already installed instead of installing a second one.
+        # Every isolate release, 1.x and 2.x alike, needs --cg to use control
+        # groups; without it --cg-mem is rejected and the only memory limit
+        # left is an address-space rlimit, which turns a memory bomb into a
+        # std::bad_alloc abort (RE) rather than MLE and miscounts Python.
+        # OJ_ISOLATE_CG=0 exists only for a host with no cgroup support.
         if use_cgroups is None:
-            use_cgroups = self.major < 2
+            use_cgroups = os.environ.get("OJ_ISOLATE_CG", "1") != "0"
         self.cg = ["--cg"] if use_cgroups else []
+        subprocess.run([self.binary, *self.cg, f"--box-id={box_id}", "--cleanup"],
+                       capture_output=True)
         out = subprocess.run(
             [self.binary, *self.cg, f"--box-id={box_id}", "--init"],
-            capture_output=True, text=True, check=True,
+            capture_output=True, text=True,
         )
+        if out.returncode != 0:
+            raise RuntimeError(f"isolate --init failed for box {box_id}: "
+                               f"{(out.stderr or out.stdout).strip()[:500]}")
         self.box_dir = Path(out.stdout.strip()) / "box"
 
     @staticmethod
@@ -168,6 +219,12 @@ class IsolateSandbox(Sandbox):
         if stdin is not None:
             cmd.append(f"--stdin={stdin}")
 
+        # Debian/Ubuntu install g++ and python3 as symlinks into
+        # /etc/alternatives, and isolate does not bind /etc by default, so
+        # without this every compile fails with "execve: No such file".
+        # Only the alternatives directory is exposed, read-only.
+        cmd.append("--dir=/etc/alternatives:maybe")
+
         environment = {"PATH": "/usr/bin:/bin", "HOME": "/box",
                        "PYTHONIOENCODING": "utf-8", "LANG": "C.UTF-8"}
         environment.update(env or {})
@@ -176,14 +233,18 @@ class IsolateSandbox(Sandbox):
 
         cmd += ["--run", "--", *argv]
 
-        subprocess.run(cmd, capture_output=True, text=True)
+        proc = subprocess.run(cmd, capture_output=True, text=True)
         meta = self._parse_meta(meta_path)
         os.unlink(meta_path)
+        if not meta.get("status") and proc.returncode not in (0, 1):
+            # isolate itself failed (bad flag, box not initialised, ...).
+            meta = {"status": "XX",
+                    "message": (proc.stderr or "isolate failed").strip()[:500]}
 
-        stderr_text = ""
-        err_file = self.box_dir / "stderr.txt"
-        if err_file.exists():
-            stderr_text = err_file.read_text(errors="replace")[:8000]
+        output_cap = limits.max_output_mb * 1024 * 1024
+        stdout_path, stdout_size = self._capture(stdout, output_cap)
+        err_path, _ = self._capture("stderr.txt", 8000)
+        stderr_text = err_path.read_text(errors="replace")
 
         result = RunResult(
             status=RunStatus.OK,
@@ -192,14 +253,18 @@ class IsolateSandbox(Sandbox):
             cpu_time=float(meta.get("time", 0.0)),
             wall_time=float(meta.get("time-wall", 0.0)),
             memory_kb=int(meta.get("cg-mem", meta.get("max-rss", 0))),
-            stdout_path=self.box_dir / stdout,
+            stdout_path=stdout_path,
             stderr_text=stderr_text,
             message=meta.get("message", ""),
         )
 
         status = meta.get("status", "")
-        if meta.get("cg-oom-killed") == "1":
+        if status == "XX":
+            result.status = RunStatus.SANDBOX_ERROR
+        elif meta.get("cg-oom-killed") == "1":
             result.status = RunStatus.MEMORY_EXCEEDED
+        elif result.signal == _signal.SIGXFSZ or stdout_size >= output_cap:
+            result.status = RunStatus.OUTPUT_EXCEEDED
         elif status == "TO":
             result.status = RunStatus.TIMED_OUT
         elif status == "SG":
@@ -212,8 +277,6 @@ class IsolateSandbox(Sandbox):
                 result.status = RunStatus.KILLED_BY_SIGNAL
         elif status == "RE":
             result.status = RunStatus.NONZERO_EXIT
-        elif status == "XX":
-            result.status = RunStatus.SANDBOX_ERROR
         elif result.exit_code != 0:
             result.status = RunStatus.NONZERO_EXIT
 
@@ -232,6 +295,7 @@ class IsolateSandbox(Sandbox):
     def close(self):
         subprocess.run([self.binary, *self.cg, f"--box-id={self.box_id}", "--cleanup"],
                        capture_output=True)
+        self._close_private()
 
 
 # --------------------------------------------------------------------------
@@ -302,6 +366,9 @@ class RlimitSandbox(Sandbox):
                + (usage_after.ru_stime - usage_before.ru_stime))
         peak_kb = max(usage_after.ru_maxrss, 0)
 
+        output_cap = limits.max_output_mb * 1024 * 1024
+        out_path, out_size = self._capture(stdout, output_cap)
+
         result = RunResult(
             status=RunStatus.OK,
             exit_code=proc.returncode if proc.returncode and proc.returncode > 0 else 0,
@@ -315,6 +382,8 @@ class RlimitSandbox(Sandbox):
 
         if timed_out or cpu > limits.cpu_time + 0.5:
             result.status = RunStatus.TIMED_OUT
+        elif result.signal == _signal.SIGXFSZ or out_size >= output_cap:
+            result.status = RunStatus.OUTPUT_EXCEEDED
         elif result.signal in (9, 11) and peak_kb >= limits.memory_mb * 1024 * 0.95:
             result.status = RunStatus.MEMORY_EXCEEDED
         elif result.signal is not None:
@@ -326,21 +395,32 @@ class RlimitSandbox(Sandbox):
 
     def close(self):
         shutil.rmtree(self._tmp, ignore_errors=True)
+        self._close_private()
 
 
 def open_sandbox(box_id: int = 0, backend: str | None = None) -> Sandbox:
     """
-    Pick a backend: explicit arg, else $OJ_SANDBOX, else auto-detect.
+    Pick a backend: explicit arg, else $OJ_SANDBOX, else isolate.
+
+    There is deliberately no automatic fallback to the rlimit backend: a
+    server where isolate went missing must fail loudly with Judge Errors, not
+    quietly start running student code with no isolation at all. Local
+    development opts in with OJ_SANDBOX=rlimit.
 
     $OJ_BOX_OFFSET is added to box_id. On a host shared with CMS this MUST be
     set (e.g. 100) so our boxes never collide with CMS's, which start at 0.
     Two processes initialising the same box id will clobber each other's
     working directory mid-run and produce nonsense verdicts on both sides.
     """
-    backend = backend or os.environ.get("OJ_SANDBOX") or (
-        "isolate" if shutil.which(os.environ.get("OJ_ISOLATE", "isolate")) else "rlimit"
-    )
+    backend = backend or os.environ.get("OJ_SANDBOX") or "isolate"
     box_id += int(os.environ.get("OJ_BOX_OFFSET", "0"))
     if backend == "isolate":
+        binary = os.environ.get("OJ_ISOLATE", "isolate")
+        if not shutil.which(binary):
+            raise RuntimeError(
+                f"isolate not found ({binary!r}). Install it or set OJ_ISOLATE; "
+                "for local development only, OJ_SANDBOX=rlimit.")
         return IsolateSandbox(box_id)
-    return RlimitSandbox(box_id)
+    if backend == "rlimit":
+        return RlimitSandbox(box_id)
+    raise ValueError(f"unknown sandbox backend {backend!r}")

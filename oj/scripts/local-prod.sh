@@ -80,6 +80,8 @@ export OJ_STATIC_ROOT="$RUN/static"
 export OJ_PROBLEM_ROOT="$ROOT/problems"
 export OJ_MEDIA_ROOT="$RUN/media"
 export OJ_SANDBOX=rlimit
+# Rehearsal only: settings.py refuses rlimit with DEBUG off unless told.
+export OJ_ALLOW_UNSAFE_SANDBOX=1
 export OJ_JUDGE_INLINE=0
 export OJ_BIND="127.0.0.1:$PORT"
 export PYTHONUNBUFFERED=1
