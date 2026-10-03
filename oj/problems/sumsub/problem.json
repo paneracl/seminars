@@ -1,0 +1,11 @@
+{
+  "code": "sumsub",
+  "title": "Sum of a sequence",
+  "time_limit": 1.0,
+  "memory_limit_mb": 256,
+  "checker": {"type": "token"},
+  "subtasks": [
+    {"index": 1, "points": 30, "aggregation": "min", "tests": ["01", "02"]},
+    {"index": 2, "points": 70, "aggregation": "min", "tests": ["03", "04"]}
+  ]
+}

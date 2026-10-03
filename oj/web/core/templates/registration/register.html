@@ -1,0 +1,16 @@
+{% extends "core/base.html" %}
+{% block title %}Create account{% endblock %}
+{% block content %}
+<h1>Create account</h1>
+<p class="sub">Pick a username you'll recognise on a scoreboard.</p>
+<form method="post" class="card" style="max-width:460px">
+  {% csrf_token %}
+  {% for field in form %}
+    <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+    {{ field }}
+    {% if field.errors %}<ul class="errorlist">{% for e in field.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+    {% if field.help_text %}<p class="hint">{{ field.help_text|safe }}</p>{% endif %}
+  {% endfor %}
+  <p style="margin-top:1rem"><button type="submit">Create account</button></p>
+</form>
+{% endblock %}

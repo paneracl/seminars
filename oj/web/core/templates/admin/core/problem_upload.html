@@ -1,0 +1,14 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<h1>Upload problem package</h1>
+<p>A package is a .zip containing <code>problem.json</code>, a <code>tests/</code>
+   folder, and optionally <code>statement.html</code> and <code>checker/</code>.
+   It is checked before anything is written: a package that references a
+   missing test file is rejected here rather than failing on a student's
+   submission during a contest.</p>
+<form method="post" enctype="multipart/form-data">
+  {% csrf_token %}
+  <table>{{ form.as_table }}</table>
+  <p class="submit-row"><input type="submit" value="Upload and validate" class="default"></p>
+</form>
+{% endblock %}

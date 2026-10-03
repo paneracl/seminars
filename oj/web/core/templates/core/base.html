@@ -1,0 +1,288 @@
+{% load static %}<!doctype html>
+<html lang="{{ LANGUAGE_CODE|default:'en' }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Judge{% endblock %}</title>
+<script>
+/* Set the theme before the stylesheet paints, so a dark-mode user never sees
+   a flash of light UI on load. Saved choice wins; otherwise follow the OS. */
+(function () {
+  try {
+    var saved = localStorage.getItem("oj-theme");
+    var dark = saved ? saved === "dark"
+                     : window.matchMedia("(prefers-color-scheme: dark)").matches;
+    if (dark) document.documentElement.setAttribute("data-theme", "dark");
+  } catch (e) {}
+})();
+</script>
+<style>
+/* Everything is inlined and self-hosted on purpose: a school server may sit
+   on a LAN with no outbound internet, and a judge that renders unstyled
+   because a font CDN is unreachable is a judge nobody trusts. */
+@font-face{
+  font-family:"JetBrains Mono";
+  src:url("{% static 'vendor/fonts/JetBrainsMono-Regular.woff2' %}") format("woff2");
+  font-weight:400;font-style:normal;font-display:swap;
+}
+@font-face{
+  font-family:"JetBrains Mono";
+  src:url("{% static 'vendor/fonts/JetBrainsMono-Bold.woff2' %}") format("woff2");
+  font-weight:700;font-style:normal;font-display:swap;
+}
+@font-face{
+  font-family:"JetBrains Mono";
+  src:url("{% static 'vendor/fonts/JetBrainsMono-Italic.woff2' %}") format("woff2");
+  font-weight:400;font-style:italic;font-display:swap;
+}
+:root{
+  --ink:#11202e; --paper:#f6f4ef; --card:#fffdf8; --rule:#ddd7c9;
+  --muted:#5d6b78; --accent:#1f6f6b; --accent-dark:#155450;
+  --ac:#2f7d4f; --pa:#a8720f; --bad:#b23a48; --neutral:#7c8791;
+  --seg-empty:#e7e2d6; --seg-solved:#e4f0e7; --seg-partial:#f7eeda;
+  --seg-failed:#f8e6e8; --seg-pending:#e6ecf2; --code-inline:#efeade;
+  --input-bg:#ffffff;
+  --mono:"JetBrains Mono",ui-monospace,"SF Mono",SFMono-Regular,"Cascadia Mono","Liberation Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans",sans-serif;
+}
+/* Dark theme. A second variable block, not a second stylesheet: every rule
+   below already reads these tokens, so the whole UI re-themes from here. The
+   accent lightens because the dark-paper contrast needs it. */
+:root[data-theme="dark"]{
+  --ink:#e4e8ec; --paper:#0f1620; --card:#182029; --rule:#2b3742;
+  --muted:#8a97a3; --accent:#3fb6ad; --accent-dark:#5ec9c0;
+  --ac:#5cc98a; --pa:#d6a548; --bad:#e0697a; --neutral:#7c8791;
+  --seg-empty:#242e38; --seg-solved:#1e3a2b; --seg-partial:#3a3320;
+  --seg-failed:#3a2429; --seg-pending:#1f2a36; --code-inline:#222c36;
+  --input-bg:#0c131b;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.55 var(--sans);
+     -webkit-text-size-adjust:100%}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+header.site{border-bottom:1px solid var(--rule);background:var(--card)}
+.bar{max-width:980px;margin:0 auto;padding:.7rem 1rem;display:flex;gap:1.25rem;
+     align-items:baseline;flex-wrap:wrap}
+.brand{font-family:var(--mono);font-weight:600;letter-spacing:.02em;color:var(--ink)}
+.brand span{color:var(--accent)}
+.bar nav{display:flex;gap:1rem;flex-wrap:wrap}
+.bar .spacer{margin-left:auto}
+.bar .who{font-size:.85rem;color:var(--muted)}
+
+main{max-width:980px;margin:0 auto;padding:1.5rem 1rem 4rem}
+h1{font-size:1.6rem;margin:.2rem 0 .1rem;letter-spacing:-.01em}
+h2{font-size:1.05rem;margin:2rem 0 .6rem;text-transform:uppercase;
+   letter-spacing:.08em;color:var(--muted);font-weight:600}
+.sub{color:var(--muted);font-size:.9rem;margin:0 0 1.2rem}
+
+table{width:100%;border-collapse:collapse;font-size:.94rem}
+th{text-align:left;font-size:.75rem;text-transform:uppercase;letter-spacing:.07em;
+   color:var(--muted);border-bottom:1px solid var(--rule);padding:.4rem .5rem}
+td{padding:.5rem;border-bottom:1px solid var(--rule);vertical-align:top}
+tr:last-child td{border-bottom:none}
+.mono{font-family:var(--mono);font-size:.88em}
+.num{text-align:right;font-family:var(--mono);font-size:.88em;
+     font-variant-numeric:tabular-nums}
+
+.card{background:var(--card);border:1px solid var(--rule);border-radius:3px;
+      padding:1.1rem 1.2rem;margin-bottom:1.2rem}
+
+/* Verdicts always pair colour with the letter code, so they stay readable
+   without colour vision. */
+.v{font-family:var(--mono);font-size:.78rem;font-weight:600;letter-spacing:.04em;
+   padding:.13rem .42rem;border-radius:2px;border:1px solid currentColor;
+   white-space:nowrap}
+.v-AC{color:var(--ac)} .v-PA{color:var(--pa)}
+.v-WA,.v-TLE,.v-MLE,.v-RE,.v-CE,.v-OLE{color:var(--bad)}
+.v-IE{color:var(--bad);background:#fdeaec}
+.v-SK,.v-pending,.v-judging{color:var(--neutral)}
+
+/* Signature element: subtask blocks sized by their point value, so the shape
+   of the bar is the shape of the marking scheme. */
+.scorebar{display:flex;gap:3px;height:26px;margin:.55rem 0 .3rem}
+.scorebar .seg{position:relative;background:var(--seg-empty);border-radius:2px;overflow:hidden;
+               min-width:26px}
+.scorebar .fill{position:absolute;inset:0 auto 0 0;background:var(--ac);opacity:.85}
+.scorebar .seg.partial .fill{background:var(--pa)}
+.scorebar .seg.zero .fill{background:transparent}
+.scorebar .lab{position:absolute;inset:0;display:flex;align-items:center;
+               justify-content:center;font:600 .7rem/1 var(--mono);color:#14202b}
+.scorekey{font-family:var(--mono);font-size:.78rem;color:var(--muted)}
+
+.total{font-family:var(--mono);font-size:1.5rem;font-variant-numeric:tabular-nums}
+.total .of{color:var(--muted);font-size:1rem}
+
+label{display:block;font-size:.8rem;text-transform:uppercase;letter-spacing:.06em;
+      color:var(--muted);margin:.9rem 0 .3rem}
+textarea,input[type=text],input[type=password],input[type=file],select{
+  width:100%;padding:.5rem .6rem;border:1px solid var(--rule);border-radius:3px;
+  background:var(--input-bg);color:var(--ink);font:14px/1.5 var(--mono)}
+textarea{resize:vertical;tab-size:4}
+select{font-family:var(--sans)}
+/* Native selects render an OS-themed dropdown; colour-scheme tells the browser
+   to use dark widgets so the popup list isn't white-on-white in dark mode. */
+:root[data-theme="dark"] select,:root[data-theme="dark"] input{color-scheme:dark}
+button,.btn{font:600 .92rem var(--sans);padding:.55rem 1.1rem;border-radius:3px;
+  border:1px solid var(--accent-dark);background:var(--accent);color:#fff;cursor:pointer}
+button:hover,.btn:hover{background:var(--accent-dark);text-decoration:none}
+.hint{font-size:.82rem;color:var(--muted);margin:.35rem 0 0}
+pre{background:var(--pre-bg,#11202e);color:var(--pre-fg,#e6e9ec);padding:.8rem;border-radius:3px;overflow:auto;
+    font:13px/1.5 var(--mono);white-space:pre-wrap;word-break:break-word}
+.msg{padding:.6rem .8rem;border-radius:3px;margin-bottom:.8rem;font-size:.92rem;
+     border:1px solid var(--rule);background:var(--card)}
+.msg.error{border-color:var(--bad);color:var(--bad)}
+.msg.warning{border-color:var(--pa);color:var(--pa)}
+.msg.success{border-color:var(--ac);color:var(--ac)}
+.empty{color:var(--muted);padding:1.5rem 0}
+
+/* --- statements --- */
+.langbar{display:flex;gap:.4rem;margin:0 0 .9rem}
+.langbar a{font-size:.78rem;text-transform:uppercase;letter-spacing:.06em;
+  padding:.2rem .6rem;border:1px solid var(--rule);border-radius:2px;color:var(--muted)}
+.langbar a.on{border-color:var(--accent);color:var(--accent);font-weight:600}
+.langbar a:hover{text-decoration:none;border-color:var(--accent)}
+.pdfbar{margin:0 0 1rem}
+.pdfframe{border:1px solid var(--rule);border-radius:3px;overflow:hidden;
+  height:min(78vh,860px);background:#fff}
+.pdfframe object{width:100%;height:100%;border:0;display:block}
+@media (max-width:640px){.pdfframe{display:none}}
+.statement{line-height:1.65}
+.statement h1,.statement h2,.statement h3{text-transform:none;letter-spacing:normal;
+  color:var(--ink);font-weight:600;margin:1.4rem 0 .5rem}
+.statement h2{font-size:1.12rem}
+.statement h3{font-size:1rem}
+.statement p{margin:.7rem 0}
+.statement pre{background:#f0ece2;color:var(--ink);border:1px solid var(--rule)}
+.statement code{background:var(--code-inline);padding:.08em .3em;border-radius:2px;
+  font-family:var(--mono);font-size:.9em}
+.statement pre code{background:none;padding:0}
+.statement table{margin:.9rem 0;width:auto;min-width:min(100%,320px)}
+.statement th,.statement td{border:1px solid var(--rule);padding:.35rem .7rem;
+  text-transform:none;letter-spacing:normal;font-size:.94rem;color:var(--ink)}
+.statement th{background:var(--code-inline);font-weight:600}
+.statement blockquote{margin:.9rem 0;padding:.1rem 0 .1rem 1rem;
+  border-left:3px solid var(--rule);color:var(--muted)}
+.statement img{max-width:100%;height:auto}
+.statement var{font-family:var(--mono);font-style:normal}
+.katex{font-size:1.04em}
+.katex-display{overflow-x:auto;overflow-y:hidden;padding:.2rem 0}
+.errorlist{color:var(--bad);font-size:.86rem;padding-left:1.1rem;margin:.3rem 0}
+@media (max-width:560px){
+  .hide-sm{display:none}
+  main{padding:1rem .8rem 3rem}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* theme toggle */
+.theme-toggle{background:none;border:1px solid var(--rule);border-radius:5px;
+  color:var(--muted);cursor:pointer;padding:.3rem;display:inline-flex;
+  align-items:center;justify-content:center;line-height:0}
+.theme-toggle:hover{border-color:var(--accent);color:var(--accent)}
+.theme-toggle .icon-moon{display:none}
+:root[data-theme="dark"] .theme-toggle .icon-sun{display:none}
+:root[data-theme="dark"] .theme-toggle .icon-moon{display:inline}
+.linkbtn{background:none;color:var(--accent);border:none;padding:0;
+  font:inherit;font-weight:400;cursor:pointer}
+.linkbtn:hover{text-decoration:underline}
+
+/* CodeMirror host */
+.cm-host{border:1px solid var(--rule);border-radius:5px;overflow:hidden;
+  margin:.2rem 0}
+.cm-host .cm-editor{max-height:70vh}
+.cm-host .cm-editor.cm-focused{outline:none}
+.cm-host .cm-scroller{font-family:var(--mono);font-size:13.5px;line-height:1.6}
+.cm-host .cm-content,.cm-host .cm-gutterElement{line-height:1.6}
+/* Light-mode gutter tint so line numbers don't float on bare white. */
+.cm-host .cm-gutters{background:var(--card);border-right:1px solid var(--rule);
+  color:var(--muted)}
+
+/* Run Code panel */
+.run-panel{margin:1rem 0 0;padding:.9rem;border:1px solid var(--rule);
+  border-radius:5px;background:var(--paper)}
+.run-head{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;margin-bottom:.6rem}
+.run-btn{background:var(--card);color:var(--accent-dark);border:1px solid var(--accent);
+  font:600 .92rem var(--sans);padding:.5rem 1.1rem;border-radius:4px;cursor:pointer}
+.run-btn:hover{background:var(--accent);color:#fff}
+.run-btn:disabled{opacity:.6;cursor:default}
+:root[data-theme="dark"] .run-btn:hover{color:var(--paper)}
+.run-note{color:var(--muted);font-size:.85rem}
+.run-stdin{width:100%;font-family:var(--mono);font-size:13px;background:var(--input-bg);
+  color:var(--ink);border:1px solid var(--rule);border-radius:4px;padding:.5rem;resize:vertical}
+.run-output{margin-top:.7rem}
+.run-status{font-weight:600;margin-bottom:.3rem}
+.run-status.ok{color:var(--ac)}
+.run-status.bad{color:var(--bad)}
+.run-status.warn{color:var(--pa)}
+.run-time{font-weight:400;color:var(--muted);font-size:.85rem}
+.run-msg{color:var(--bad);font-size:.9rem;margin-bottom:.4rem}
+.run-label{font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;
+  color:var(--muted);margin:.5rem 0 .2rem}
+.run-output pre{background:#11202e;color:#e6e9ec;padding:.7rem;border-radius:4px;
+  overflow:auto;margin:0;font-family:var(--mono);font-size:12.5px;max-height:280px;
+  white-space:pre-wrap;word-break:break-word}
+.run-empty{color:#8a97a3;font-style:italic}
+.run-sample-hint{margin:.35rem 0 0;font-size:.8rem;color:var(--muted)}
+</style>
+{% block head_extra %}{% endblock %}
+</head>
+<body>
+<header class="site">
+  <div class="bar">
+    <a class="brand" href="{% url 'problem_list' %}">judge<span>()</span></a>
+    <nav>
+      <a href="{% url 'problem_list' %}">Problems</a>
+      <a href="{% url 'contest_list' %}">Contests</a>
+      {% if user.is_authenticated %}<a href="{% url 'submission_list' %}">Submissions</a>{% endif %}
+      {% if user.is_staff %}<a href="/admin/">Admin</a>{% endif %}
+    </nav>
+    <span class="spacer"></span>
+    <button type="button" id="theme-toggle" class="theme-toggle"
+            aria-label="Toggle dark mode" title="Toggle dark mode">
+      <svg class="icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <circle cx="12" cy="12" r="4"></circle>
+        <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path>
+      </svg>
+      <svg class="icon-moon" width="18" height="18" viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path>
+      </svg>
+    </button>
+    {% if user.is_authenticated %}
+      <span class="who">{{ user.username }}</span>
+      <form method="post" action="{% url 'logout' %}" style="display:inline">
+        {% csrf_token %}<button class="linkbtn">Sign out</button>
+      </form>
+    {% else %}
+      <a href="{% url 'login' %}">Sign in</a>
+      <a href="{% url 'register' %}">Create account</a>
+    {% endif %}
+  </div>
+</header>
+<script>
+/* Theme toggle. Persists the choice and tells the editor (and anything else
+   listening) so CodeMirror can re-theme without a reload. */
+(function () {
+  var btn = document.getElementById("theme-toggle");
+  if (!btn) return;
+  btn.addEventListener("click", function () {
+    var root = document.documentElement;
+    var dark = root.getAttribute("data-theme") !== "dark";
+    root.setAttribute("data-theme", dark ? "dark" : "light");
+    try { localStorage.setItem("oj-theme", dark ? "dark" : "light"); } catch (e) {}
+    window.dispatchEvent(new CustomEvent("oj-theme-change", { detail: { dark: dark } }));
+  });
+})();
+</script>
+<main>
+  {% if messages %}{% for m in messages %}
+    <div class="msg {{ m.tags }}">{{ m }}</div>
+  {% endfor %}{% endif %}
+  {% block content %}{% endblock %}
+</main>
+{% block body_extra %}{% endblock %}
+</body>
+</html>

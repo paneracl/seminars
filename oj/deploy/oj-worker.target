@@ -1,0 +1,8 @@
+[Unit]
+Description=All online judge workers
+# The kill switch. Before a national round:
+#     sudo systemctl stop oj-worker.target
+# Queued submissions survive and grade when you start it again.
+
+[Install]
+WantedBy=multi-user.target
