@@ -1,0 +1,10 @@
+{% extends "core/base.html" %}
+{% block title %}{{ contest.name }}{% endblock %}
+{% block content %}
+<h1>{{ contest.name }}</h1>
+<div class="card">
+  <p>The problems are sealed until the contest starts.</p>
+  <p class="hint">Starts {{ contest.start_time|date:"j M Y, H:i" }} (server time).</p>
+  <p style="margin-top:1rem"><a class="btn" href="{{ contest.get_absolute_url }}">Back to the contest</a></p>
+</div>
+{% endblock %}

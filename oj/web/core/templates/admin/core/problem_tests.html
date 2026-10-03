@@ -1,0 +1,86 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block extrastyle %}
+{{ block.super }}
+<style>
+  .test-card { border: 1px solid var(--hairline-color); margin: 0 0 18px; background: var(--body-bg); }
+  .test-head { padding: 10px 12px; background: var(--darkened-bg); display: flex; gap: 18px; align-items: end; flex-wrap: wrap; }
+  .test-body { padding: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .test-body textarea { width: 100%; box-sizing: border-box; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+  .field-errors { color: var(--error-fg); margin: 4px 0; }
+  .subtask-note { margin: 0 0 16px; }
+  .subtask-checks ul { margin: 4px 0 0; padding: 0; list-style: none; display: flex; gap: 14px; flex-wrap: wrap; }
+  .subtask-checks label { white-space: nowrap; }
+  @media (max-width: 900px) { .test-body { grid-template-columns: 1fr; } }
+</style>
+{% endblock %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+<a href="{% url 'admin:index' %}">Home</a>
+&rsaquo; <a href="{% url 'admin:core_problem_changelist' %}">Problems</a>
+&rsaquo; <a href="{% url 'admin:core_problem_change' problem.pk %}">{{ problem }}</a>
+&rsaquo; Manual tests
+</div>
+{% endblock %}
+
+{% block content %}
+<h1>Manual tests — {{ problem.code }} — {{ problem.title }}</h1>
+<p>Add or edit each test directly here. The <strong>Input</strong> is saved as
+<code>tests/&lt;name&gt;.in</code> and the <strong>Expected output</strong> as
+<code>tests/&lt;name&gt;.ans</code>. You can also rename or delete a test.</p>
+
+<p class="subtask-note"><strong>Available subtasks:</strong>
+{% for s in subtasks %}
+  {{ s.index }} ({{ s.points }} points{% if s.aggregation %}, {{ s.aggregation }}{% endif %}){% if not forloop.last %}; {% endif %}
+{% endfor %}
+</p>
+
+<form method="post" novalidate>
+  {% csrf_token %}
+  {{ formset.management_form }}
+  {% if formset.non_form_errors %}<div class="errornote">{{ formset.non_form_errors }}</div>{% endif %}
+
+  {% for form in formset %}
+    <div class="test-card">
+      {{ form.original_name }}
+      <div class="test-head">
+        <div>
+          <label for="{{ form.name.id_for_label }}"><strong>{{ form.name.label }}</strong></label><br>
+          {{ form.name }}
+          {% if form.name.errors %}<div class="field-errors">{{ form.name.errors }}</div>{% endif %}
+          {% if form.name.help_text %}<div class="help">{{ form.name.help_text }}</div>{% endif %}
+        </div>
+        <div class="subtask-checks">
+          <strong>{{ form.subtasks.label }}</strong>
+          {{ form.subtasks }}
+          {% if form.subtasks.errors %}<div class="field-errors">{{ form.subtasks.errors }}</div>{% endif %}
+          {% if subtasks|length == 1 %}<div class="help">The only subtask is selected automatically for new tests.</div>{% endif %}
+        </div>
+        <div>
+          <label for="{{ form.DELETE.id_for_label }}">{{ form.DELETE }} <strong>Delete this test</strong></label>
+        </div>
+      </div>
+      <div class="test-body">
+        <div>
+          <label for="{{ form.input_text.id_for_label }}"><strong>{{ form.input_text.label }}</strong></label>
+          {{ form.input_text }}
+          {% if form.input_text.errors %}<div class="field-errors">{{ form.input_text.errors }}</div>{% endif %}
+        </div>
+        <div>
+          <label for="{{ form.answer_text.id_for_label }}"><strong>{{ form.answer_text.label }}</strong></label>
+          {{ form.answer_text }}
+          {% if form.answer_text.errors %}<div class="field-errors">{{ form.answer_text.errors }}</div>{% endif %}
+        </div>
+      </div>
+    </div>
+  {% endfor %}
+
+  <div class="submit-row">
+    <input type="submit" value="Save tests" class="default">
+    <a class="button" href="{% url 'admin:core_problem_subtasks' problem.pk %}">Manage subtasks</a>
+    <a class="button" href="{% url 'admin:core_problem_change' problem.pk %}">Back to problem</a>
+  </div>
+</form>
+{% endblock %}

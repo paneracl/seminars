@@ -1,0 +1,45 @@
+{% comment %}
+Shared statement block. `pdf_url_name` tells it which URL to build for the PDF,
+since contest and public problems have different (access-controlled) paths.
+{% endcomment %}
+
+{% if all_statements|length > 1 %}
+<p class="langbar">
+  {% for s in all_statements %}
+    <a href="?lang={{ s.language }}"
+       class="{% if s.language == statement.language %}on{% endif %}">{{ s.get_language_display }}</a>
+  {% endfor %}
+</p>
+{% endif %}
+
+{% if statement %}
+  {% if statement.has_pdf %}
+    <p class="pdfbar">
+      <a class="btn" href="{{ pdf_url }}" target="_blank" rel="noopener">
+        Statement PDF ({{ statement.get_language_display }})</a>
+      {% if not statement.has_body %}
+      <span class="hint" style="margin-left:.6rem">Opens in a new tab.</span>
+      {% endif %}
+    </p>
+    {% if not statement.has_body %}
+      {# PDF-only: embed it, but always keep the link above -- embedded PDFs
+         are unusable on a phone, and some browsers refuse to render them. #}
+      <div class="pdfframe">
+        <object data="{{ pdf_url }}" type="application/pdf">
+          <p class="hint" style="padding:1rem">Your browser cannot display the
+            PDF inline. Use the button above to open it.</p>
+        </object>
+      </div>
+    {% endif %}
+  {% endif %}
+
+  {% if statement.has_body %}
+    <div class="statement">{{ statement.rendered|safe }}</div>
+  {% endif %}
+
+  {% if not statement.has_body and not statement.has_pdf %}
+    <p class="empty" style="padding:0">This statement is empty.</p>
+  {% endif %}
+{% else %}
+  <p class="empty" style="padding:0">No statement has been added for this problem yet.</p>
+{% endif %}

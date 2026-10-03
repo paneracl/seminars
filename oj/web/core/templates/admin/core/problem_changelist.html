@@ -1,0 +1,5 @@
+{% extends "admin/change_list.html" %}
+{% block object-tools-items %}
+  <li><a href="{% url 'admin:core_problem_upload' %}" class="addlink">Upload package</a></li>
+  {{ block.super }}
+{% endblock %}

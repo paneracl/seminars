@@ -1,0 +1,13 @@
+{% extends "core/base.html" %}
+{% block title %}Sign in{% endblock %}
+{% block content %}
+<h1>Sign in</h1>
+<form method="post" class="card" style="max-width:420px">
+  {% csrf_token %}
+  {% if form.errors %}<div class="msg error">That username and password don't match. Check both and try again.</div>{% endif %}
+  <label for="{{ form.username.id_for_label }}">Username</label>{{ form.username }}
+  <label for="{{ form.password.id_for_label }}">Password</label>{{ form.password }}
+  <p style="margin-top:1rem"><button type="submit">Sign in</button></p>
+  <p class="hint">No account? <a href="{% url 'register' %}">Create one</a>.</p>
+</form>
+{% endblock %}

@@ -1,0 +1,33 @@
+[Unit]
+Description=Online judge worker %i
+After=network.target postgresql.service
+PartOf=oj-worker.target
+
+[Service]
+Type=simple
+User=oj
+Group=oj
+WorkingDirectory=/srv/oj/app/web
+EnvironmentFile=/etc/oj/oj.env
+ExecStart=/srv/oj/venv/bin/python manage.py runjudge --box-id %i
+
+# Pin each worker to its own reserved core so grading timings are
+# reproducible and so judging cannot perturb whatever else runs on this host.
+# %i is the instance number: oj-worker@3 pins to CPU 3 and uses sandbox 3
+# (plus OJ_BOX_OFFSET). Edit to match the cores you reserved with isolcpus.
+CPUAffinity=%i
+
+# Stop politely: runjudge finishes the submission in hand before exiting, so
+# nothing is left half-judged.
+KillSignal=SIGTERM
+TimeoutStopSec=120
+Restart=on-failure
+RestartSec=5
+
+# Deliberately minimal hardening. isolate needs to create namespaces, mount,
+# and write cgroups; ProtectSystem/PrivateDevices here would break judging in
+# ways that look like random Judge Errors.
+NoNewPrivileges=false
+
+[Install]
+WantedBy=oj-worker.target
